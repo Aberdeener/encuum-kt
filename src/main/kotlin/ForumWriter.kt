@@ -16,7 +16,7 @@ object DB {
 fun mkTables() {
     println("Connected to ${DB.db.name}")
     transaction {
-        SchemaUtils.create(Forums, ForumThreads, Posts)
+        SchemaUtils.create(Forums, ForumThreads, Posts, Users)
     }
 }
 

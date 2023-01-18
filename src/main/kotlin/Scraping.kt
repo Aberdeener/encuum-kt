@@ -91,6 +91,12 @@ fun scrape(opts: ScrapeOpts) {
     var forums: List<Forum>? = null
     transaction {
         forums = Forum.all().notForUpdate().toList()
+
+        User.new {
+            this.username = "UNKNOWN POSTER"
+            this.enjinUserId = 0
+            this.uuid = "00000000-0000-0000-0000-000000000000"
+        }
     }
 
     for (forum in forums!!) {
@@ -125,7 +131,7 @@ fun scrape(opts: ScrapeOpts) {
                         ForumThread.new {
                             this.url = opts.baseUrl + threadLinkElement.getAttribute("href")
                             this.title = threadLinkElement.textContent().trim()
-                            this.posterName = ""
+                            this.posterId = User[1].id
                             this.forum = forum.id
                         }
                     }
@@ -157,10 +163,8 @@ fun scrape(opts: ScrapeOpts) {
                 val origUsernames =
                     threadPage.locator("//tr[@post_id]//a[contains(@class, 'element_username')]").elementHandles()
                 transaction {
-                    if (origUsernames.size == 0) {
-                        thread.posterName = "UNKNOWN POSTER"
-                    } else {
-                        thread.posterName = origUsernames.first().textContent()
+                    if (origUsernames.size > 0) {
+                        thread.posterId = findOrCreateUser(origUsernames.first(), threadPage).id
                     }
                 }
 
@@ -183,7 +187,7 @@ fun scrape(opts: ScrapeOpts) {
                         try {
                             skipUnique {
                                 Post.new {
-                                    this.posterName = userNameLocator.elementHandles()[pos].textContent()
+                                    this.posterId = findOrCreateUser(userNameLocator.elementHandles()[pos], threadPage).id
                                     this.seq = pos + 1
                                     this.url = threadPage.url()
                                     this.bbcode =
@@ -207,4 +211,25 @@ fun scrape(opts: ScrapeOpts) {
     }
     workerPool.shutdown()
     workerPool.awaitTermination(365, TimeUnit.DAYS)
+}
+
+fun findOrCreateUser(usernameElement: ElementHandle, threadPage: Page): User {
+    val username = usernameElement.textContent()
+    val user = User.find { Users.username eq username }.firstOrNull()
+    if (user != null) {
+        return user;
+    }
+
+    val uuids = threadPage.locator("a[data-minitooltip='$username'] canvas:nth-child(2)").elementHandles();
+    val uuid = if (uuids.size > 0) {
+        uuids.first().getAttribute("data-uuid")
+    } else {
+        "00000000-0000-0000-0000-000000000000"
+    }
+
+    return User.new {
+        this.username = username
+        this.enjinUserId = usernameElement.getAttribute("href").split("/").last().toInt()
+        this.uuid = uuid
+    }
 }
