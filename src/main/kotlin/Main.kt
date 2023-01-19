@@ -9,8 +9,6 @@ fun main() {
         password = dotenv["password"],
         forumBase = dotenv["forumbase"]
     )
-    //val rslt = scrape(opts)
     mkTables()
     scrape(opts)
-    //writeForumsToFiles(rslt)
 }

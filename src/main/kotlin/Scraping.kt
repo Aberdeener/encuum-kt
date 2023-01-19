@@ -172,37 +172,50 @@ fun scrape(opts: ScrapeOpts) {
                     threadPage.waitForTimeout((1000 + rand.nextLong(1000, 5000)).toDouble())
                     val postLocator = threadPage.locator("//tr[@post_id]")
                     val userNameLocator = threadPage.locator("//tr[@post_id]//a[contains(@class, 'element_username')]")
-                    val quotes = threadPage.locator("//div[contains(@class,'iconf-quote-right')]").elementHandles()
                     val posteds = threadPage.locator("div.posted").elementHandles()
 
-                    quotes.forEachIndexed { pos, quote ->
-                        val textArea = threadPage.locator("//textarea[@id='content']")
-                        textArea.clear()
-                        quote.click()
-                        holup@ for (i in 0..30) {
-                            if (textArea.inputValue().trim().isNotEmpty())
-                                break@holup
-                            threadPage.waitForTimeout((1000 + rand.nextLong(1000, 2000)).toDouble())
+                    // on forums that don't allow quoting this does not work
+                    // use post-content div content instead
+                    val quotes = threadPage.locator("//div[contains(@class,'iconf-quote-right')]").elementHandles()
+
+                    if (quotes.size == 0) {
+                        println("No quotes found, using post-content div content instead for thread ${thread.title}")
+                        val contents = threadPage.locator("div.post-content").elementHandles()
+                        contents.forEachIndexed { pos, content ->
+                            createPost(
+                                skipUnique,
+                                userNameLocator.elementHandles()[pos],
+                                threadPage,
+                                content.innerHTML(),
+                                pos,
+                                thread,
+                                posteds,
+                                postLocator
+                            )
                         }
-                        try {
-                            skipUnique {
-                                Post.new {
-                                    this.posterId = findOrCreateUser(userNameLocator.elementHandles()[pos], threadPage).id
-                                    this.seq = pos + 1
-                                    this.url = threadPage.url()
-                                    this.bbcode =
-                                        postContentsRx.matchEntire(textArea.inputValue())?.groupValues?.get(1) ?: ""
-                                    this.forumThread = thread.id
-                                    this.posted = posteds[pos].innerText()
-                                    this.enjinPostId =
-                                        postLocator.elementHandles()[pos].getAttribute("post_id").toInt()
-                                }
-                            }
+                    } else {
+                        quotes.forEachIndexed { pos, quote ->
+                            val textArea = threadPage.locator("//textarea[@id='content']")
                             textArea.clear()
-                        } catch (e: Exception) {
-                            e.printStackTrace()
+                            quote.click()
+                            holup@ for (i in 0..30) {
+                                if (textArea.inputValue().trim().isNotEmpty())
+                                    break@holup
+                                threadPage.waitForTimeout((1000 + rand.nextLong(1000, 2000)).toDouble())
+                            }
+                            createPost(
+                                skipUnique,
+                                userNameLocator.elementHandles()[pos],
+                                threadPage,
+                                postContentsRx.matchEntire(textArea.inputValue())?.groupValues?.get(1) ?: "",
+                                pos,
+                                thread,
+                                posteds,
+                                postLocator,
+                            )
                         }
                     }
+
                     println("Processed page $pageNum of forum thread titled ${thread.title}")
                     threadPage.waitForTimeout((1000 + rand.nextLong(6000, 15000)).toDouble())
                 }
@@ -211,6 +224,33 @@ fun scrape(opts: ScrapeOpts) {
     }
     workerPool.shutdown()
     workerPool.awaitTermination(365, TimeUnit.DAYS)
+}
+
+fun createPost(
+    skipUnique: (() -> Unit) -> Unit,
+    usernameElement: ElementHandle,
+    threadPage: Page,
+    postContent: String,
+    pos: Int,
+    thread: ForumThread,
+    posteds: List<ElementHandle>,
+    postLocator: Locator
+) {
+    try {
+        skipUnique {
+            Post.new {
+                this.posterId = findOrCreateUser(usernameElement, threadPage).id
+                this.seq = pos + 1
+                this.url = threadPage.url()
+                this.bbcode = postContent
+                this.forumThread = thread.id
+                this.posted = posteds[pos].innerText()
+                this.enjinPostId = postLocator.elementHandles()[pos].getAttribute("post_id").toInt()
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
 }
 
 fun findOrCreateUser(usernameElement: ElementHandle, threadPage: Page): User {
