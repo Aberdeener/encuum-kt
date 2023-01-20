@@ -24,7 +24,7 @@ dependencies {
     implementation("org.jetbrains.exposed", "exposed-jdbc", "0.41.1")
     // https://mvnrepository.com/artifact/org.xerial/sqlite-jdbc
     implementation("org.xerial:sqlite-jdbc:3.40.0.0")
-
+    implementation("org.kefirsf:kefirbb:1.5")
 
 }
 

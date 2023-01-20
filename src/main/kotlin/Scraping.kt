@@ -4,6 +4,7 @@ import com.microsoft.playwright.BrowserType.LaunchOptions
 import com.microsoft.playwright.options.ScreenSize
 import com.microsoft.playwright.options.ViewportSize
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.kefirsf.bb.BBProcessorFactory
 import java.security.SecureRandom
 import java.util.*
 import java.util.concurrent.Executors
@@ -49,6 +50,7 @@ fun scrape(opts: ScrapeOpts) {
     val pi = newPlaywright()
     threadLocal.set(pi) //For the main thread only, via the magic of ThreadLocal
     val page = pi.pg
+    val bbCodeProcessor = BBProcessorFactory.getInstance().create()
 
     val skipUnique = su@{ exec: () -> Unit ->
         try {
@@ -176,25 +178,14 @@ fun scrape(opts: ScrapeOpts) {
 
                     // on forums that don't allow quoting this does not work
                     // use post-content div content instead
-                    val quotes = threadPage.locator("//div[contains(@class,'iconf-quote-right')]").elementHandles()
+                    val contents = threadPage.locator("div.post-content").elementHandles()
 
-                    if (quotes.size == 0) {
-                        println("No quotes found, using post-content div content instead for thread ${thread.title}")
-                        val contents = threadPage.locator("div.post-content").elementHandles()
-                        contents.forEachIndexed { pos, content ->
-                            createPost(
-                                skipUnique,
-                                userNameLocator.elementHandles()[pos],
-                                threadPage,
-                                content.innerHTML(),
-                                pos,
-                                thread,
-                                posteds,
-                                postLocator
-                            )
-                        }
-                    } else {
+                    if (contents.size == 0) {
+                        val quotes = threadPage.locator("//div[contains(@class,'iconf-quote-right')]").elementHandles()
                         quotes.forEachIndexed { pos, quote ->
+                            if (posteds.size <= pos) {
+                                return@forEachIndexed
+                            }
                             val textArea = threadPage.locator("//textarea[@id='content']")
                             textArea.clear()
                             quote.click()
@@ -207,11 +198,28 @@ fun scrape(opts: ScrapeOpts) {
                                 skipUnique,
                                 userNameLocator.elementHandles()[pos],
                                 threadPage,
-                                postContentsRx.matchEntire(textArea.inputValue())?.groupValues?.get(1) ?: "",
+                                bbCodeProcessor.process(postContentsRx.matchEntire(textArea.inputValue())?.groupValues?.get(1) ?: ""),
                                 pos,
                                 thread,
                                 posteds,
                                 postLocator,
+                            )
+                        }
+                    } else {
+                        contents.forEachIndexed { pos, content ->
+                            if (posteds.size <= pos) {
+                                // Usually happens when it find the `post-content` div of the text editor to make a new reply
+                                return@forEachIndexed
+                            }
+                            createPost(
+                                skipUnique,
+                                userNameLocator.elementHandles()[pos],
+                                threadPage,
+                                content.innerHTML(),
+                                pos,
+                                thread,
+                                posteds,
+                                postLocator
                             )
                         }
                     }
